@@ -4,22 +4,36 @@ struct vertex
 {
     float3 position;
     float3 normal;
+    float4 color;
 };
 
-RWStructuredBuffer<vertex> vertices;
-RWStructuredBuffer<int> triangles;
+RWStructuredBuffer<vertex> verts;
+RWStructuredBuffer<int> tris;
 
-uint x_size;
-uint y_size;
+float vert_distance;
+int x_offset;
+int y_offset;
+int x_noise_offset;
+int y_noise_offset;
+int x_size;
+int y_size;
 float noise_scale;
 
 #include "simplex_noise.cginc"
 
+float3 vert_pos(int x, int y)
+{
+    return float3(x * vert_distance,
+        perlin((x + x_offset + x_noise_offset) * vert_distance,
+               (y + y_offset + y_noise_offset) * vert_distance) * noise_scale,
+        y * vert_distance);
+}
+
 float3 surface_normal_from_indices(const int a, const int b, const int c)
 {
-    const float3 point_a = vertices [a].position;
-    const float3 point_b = vertices [b].position;
-    const float3 point_c = vertices [c].position;
+    const float3 point_a = verts[a].position;
+    const float3 point_b = verts[b].position;
+    const float3 point_c = verts[c].position;
 
     const float3 side_ab = point_b - point_a;
     const float3 side_ac = point_c - point_a;
@@ -27,38 +41,42 @@ float3 surface_normal_from_indices(const int a, const int b, const int c)
 }
 
 [numthreads(1,1,1)]
-void mesh_generation (uint3 id : SV_DispatchThreadID)
+void mesh_generation(uint3 id : SV_DispatchThreadID)
 {
-    for (uint i = 0, y = 0; y <= y_size; y++) {
-        for (uint x = 0; x <= x_size; x++, i++) {
-            vertices[i].position = float3(x, perlin(x, y) * noise_scale, y);
-        }
-    }
-    
-    for (uint ti = 0, vi = 0, vy = 0; vy < y_size; vy++, vi++) {
-        for (uint vx = 0; vx < x_size; vx++, ti += 6, vi++) {
-            triangles[ti] = vi;
-            triangles[ti + 3] = triangles[ti + 2] = vi + 1;
-            triangles[ti + 4] = triangles[ti + 1] = vi + x_size + 1;
-            triangles[ti + 5] = vi + x_size + 2;
+    for (int i = 0, y = 0; y <= y_size; y++)
+    {
+        for (int x = 0; x <= x_size; x++, i++)
+        {
+            verts[i].position = vert_pos(x, y);
         }
     }
 
-    const uint length = x_size * y_size * 6 / 3;
-    for(uint ni = 0; ni < length; ni++)
+    for (int ti = 0, vi = 0, vy = 0; vy < y_size; vy++, vi++)
     {
-        const uint normal_tri_index = ni * 3;
-        const uint vert_a_index = triangles[normal_tri_index];
-        const uint vert_b_index = triangles[normal_tri_index + 1];
-        const uint vert_c_index = triangles[normal_tri_index + 2];
+        for (int vx = 0; vx < x_size; vx++, ti += 6, vi++)
+        {
+            tris[ti] = vi;
+            tris[ti + 3] = tris[ti + 2] = vi + 1;
+            tris[ti + 4] = tris[ti + 1] = vi + x_size + 1;
+            tris[ti + 5] = vi + x_size + 2;
+        }
+    }
+
+    const int length = x_size * y_size * 6 / 3;
+    for (int ni = 0; ni < length; ni++)
+    {
+        const int normal_tri_index = ni * 3;
+        const int vert_a_index = tris[normal_tri_index];
+        const int vert_b_index = tris[normal_tri_index + 1];
+        const int vert_c_index = tris[normal_tri_index + 2];
 
         const float3 tri_norm = surface_normal_from_indices(vert_a_index, vert_b_index, vert_c_index);
-        vertices[vert_a_index].normal += tri_norm;
-        vertices[vert_b_index].normal += tri_norm;
-        vertices[vert_c_index].normal += tri_norm;
+        verts[vert_a_index].normal += tri_norm;
+        verts[vert_b_index].normal += tri_norm;
+        verts[vert_c_index].normal += tri_norm;
 
-        vertices[vert_a_index].normal = normalize(vertices[vert_a_index].normal);
-        vertices[vert_b_index].normal = normalize(vertices[vert_b_index].normal);
-        vertices[vert_c_index].normal = normalize(vertices[vert_c_index].normal);
+        verts[vert_a_index].normal = normalize(verts[vert_a_index].normal);
+        verts[vert_b_index].normal = normalize(verts[vert_b_index].normal);
+        verts[vert_c_index].normal = normalize(verts[vert_c_index].normal);
     }
 }
