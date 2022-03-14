@@ -1,0 +1,64 @@
+#pragma kernel mesh_generation
+
+struct vertex
+{
+    float3 position;
+    float3 normal;
+};
+
+RWStructuredBuffer<vertex> vertices;
+RWStructuredBuffer<int> triangles;
+
+uint x_size;
+uint y_size;
+float noise_scale;
+
+#include "simplex_noise.cginc"
+
+float3 surface_normal_from_indices(const int a, const int b, const int c)
+{
+    const float3 point_a = vertices [a].position;
+    const float3 point_b = vertices [b].position;
+    const float3 point_c = vertices [c].position;
+
+    const float3 side_ab = point_b - point_a;
+    const float3 side_ac = point_c - point_a;
+    return normalize(cross(side_ab, side_ac));
+}
+
+[numthreads(1,1,1)]
+void mesh_generation (uint3 id : SV_DispatchThreadID)
+{
+    for (uint i = 0, y = 0; y <= y_size; y++) {
+        for (uint x = 0; x <= x_size; x++, i++) {
+            vertices[i].position = float3(x, perlin(x, y) * noise_scale, y);
+        }
+    }
+    
+    for (uint ti = 0, vi = 0, vy = 0; vy < y_size; vy++, vi++) {
+        for (uint vx = 0; vx < x_size; vx++, ti += 6, vi++) {
+            triangles[ti] = vi;
+            triangles[ti + 3] = triangles[ti + 2] = vi + 1;
+            triangles[ti + 4] = triangles[ti + 1] = vi + x_size + 1;
+            triangles[ti + 5] = vi + x_size + 2;
+        }
+    }
+
+    const uint length = x_size * y_size * 6 / 3;
+    for(uint ni = 0; ni < length; ni++)
+    {
+        const uint normal_tri_index = ni * 3;
+        const uint vert_a_index = triangles[normal_tri_index];
+        const uint vert_b_index = triangles[normal_tri_index + 1];
+        const uint vert_c_index = triangles[normal_tri_index + 2];
+
+        const float3 tri_norm = surface_normal_from_indices(vert_a_index, vert_b_index, vert_c_index);
+        vertices[vert_a_index].normal += tri_norm;
+        vertices[vert_b_index].normal += tri_norm;
+        vertices[vert_c_index].normal += tri_norm;
+
+        vertices[vert_a_index].normal = normalize(vertices[vert_a_index].normal);
+        vertices[vert_b_index].normal = normalize(vertices[vert_b_index].normal);
+        vertices[vert_c_index].normal = normalize(vertices[vert_c_index].normal);
+    }
+}
